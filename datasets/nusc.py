@@ -191,9 +191,13 @@ def worldpoint2camera(points: np.ndarray, WH, cam2world, cam_intrinsic, min_dist
 
 class NuscDataset(BaseDataset):
     def __init__(self, configs, use_label=True, use_depth=False):
+        # 初始化NuScenes对象，加载指定版本的数据（verbose=True表示启用了详细模式。即程序会输出更多的详细信息和日志，以便用户可以看到更多的处理细节和过程）
         self.nusc = NuScenes(version="v1.0-{}".format(configs["version"]), dataroot=configs["base_dir"], verbose=True)
         self.version = configs["version"]
+        # 调用父类的初始化方法
         super().__init__()
+
+        # 图像相关
         self.resized_image_size = (configs["image_width"], configs["image_height"])
         self.base_dir = configs["base_dir"]
         self.image_dir = configs["image_dir"]
@@ -209,35 +213,49 @@ class NuscDataset(BaseDataset):
         self.lidar_filenames_all = []
         self.lidar2world_all = []
 
+        # 创建一个空字典，用于存储地面点云数据
         road_pointcloud = dict()
+
+        # 遍历配置中的剪辑列表，并显示进度条
         for scene_name in tqdm(clip_list, desc="Loading data clips"):
+            # 获取与当前场景名称匹配的样本记录，并按时间戳排序
             records = [samp for samp in self.nusc.sample if self.nusc.get("scene", samp["scene_token"])["name"] in scene_name]
             records.sort(key=lambda x: (x['timestamp']))
 
+            # 打印加载的场景名称
             print(f"Loading image from scene {scene_name}")
+            # 调用 load_cameras 方法加载相机信息和底盘信息
             cam_info, chassis_info = self.load_cameras(records)
 
+            # 保存当前场景的原始宽高信息
             self.raw_wh[scene_name] = cam_info["wh"]
+
+            # 将相机的位置信息、时间、内参、索引、文件名等数据添加到相应的列表中
             self.camera2world_all.extend(cam_info["poses"])
             self.camera_times_all.extend(cam_info["times"])
             self.cameras_K_all.extend(cam_info["intrinsics"])
             self.cameras_idx_all.extend(cam_info["idxs"])
             self.image_filenames_all.extend(cam_info["filenames"])
 
+            # 将底盘的唯一位置信息和所有位置信息添加到相应的列表中
             self.chassis2world_unique.extend(chassis_info["unique_poses"])
             self.chassis2world_all.extend(chassis_info["poses"])
 
+            # 生成对应的标签文件名，并添加到标签文件名列表中
             label_filenames = [rel_camera_path.replace("/CAM", "/seg_CAM").replace(".jpg", ".png") for rel_camera_path in cam_info["filenames"]]
             self.label_filenames_all.extend(label_filenames)
 
+            # 调用 load_lidars 方法加载激光雷达信息
             lidar_info = self.load_lidars(records)
+            # 将激光雷达的时间、文件名、位置信息添加到相应的列表中
             self.lidar_times_all.extend(lidar_info["times"])
             self.lidar_filenames_all.extend(lidar_info["filenames"])
             self.lidar2world_all.extend(lidar_info["poses"])
 
-
+            # 加载地面真实点云数据
             point_gt_path = os.path.join(configs["road_gt_dir"], f"{scene_name}.ply")
             xyz, rgb, label = self.load_gt_points(point_gt_path)
+            # 将地面点云数据保存到字典中
             road_pointcloud[scene_name] = {"xyz": xyz, "rgb": rgb, "label": label}
 
         self.file_check()
@@ -315,6 +333,7 @@ class NuscDataset(BaseDataset):
             sample["mask"] = mask
             sample["label"] = label
 
+        # 如果使用激光雷达
         if self.use_depth:
             cam_time = self.camera_times_all[idx]
             lidar_idx = np.argmin(np.abs(self.lidar_times_all - cam_time))

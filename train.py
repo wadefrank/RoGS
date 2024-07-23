@@ -45,12 +45,24 @@ def set_randomness(seed):
 
 
 def get_configs():
+    # 创建一个ArgumentParser对象，用于从命令行解析参数（description参数为命令行解析器提供描述信息，通常会在帮助信息中显示（即-h））
     parser = argparse.ArgumentParser(description='G4M config')
+
+    # 添加一个参数`--config`，该参数用于指定配置文件的路径，默认值为"configs/local_nusc_mini.yaml"
     parser.add_argument('--config', default="configs/local_nusc_mini.yaml", help='config yaml path')
+
+    # 解析命令行参数
     args = parser.parse_args()
+
+    # 打开指定的配置文件（args.config 指的是通过命令行参数 --config 传递的值）
     with open(args.config) as file:
+        # 使用yaml.safe_load()方法读取并解析YAML文件内容
         configs = yaml.safe_load(file)
+
+    # 在解析后的配置中添加一个新的键值对，其中"file"键的值为配置文件的绝对路径
     configs["file"] = os.path.abspath(args.config)
+
+    # 返回包含配置的字典
     return configs
 
 
@@ -86,48 +98,82 @@ def gt_render(dataset, min_xy, max_xy, bev_cam_height, wh=None, resolution=None,
 
 
 def train(configs):
+    # 从配置对象中提取各部分的配置
     dataset_cfg = configs.dataset
     model_cfg = configs.model
     pipe = configs.pipeline
     opt = configs.optimization
     train_cfg = configs.train
 
+    # 设置随机种子以确保结果的可重复性
     set_randomness(configs.seed)
+    # 禁用自动梯度的异常检测功能，以提高性能
     torch.autograd.set_detect_anomaly(False)
 
+    # 设置时区为上海
     tz = pytz.timezone('Asia/Shanghai')
+    # 定义输出目录，包含当前日期和时间（output_root格式为output/07-12-18-32）
     output_root = os.path.join(configs.output, f'{datetime.datetime.now(tz).strftime("%m-%d-%H-%M")}')
+    # 根据z_weight的值决定输出目录的后缀
     if opt.z_weight > 0:
         output_root += "-z"
     else:
         output_root += "-no_z"
+    # 创建输出目录
     os.makedirs(output_root, exist_ok=True)
+    # 创建日志记录器，记录训练过程中的信息
     logger = create_logger(f"RoGS", os.path.join(output_root, "train.log"))
+    # 定义保存图像和ply文件的目录
     img_root = os.path.join(output_root, "images")
     ply_root = os.path.join(output_root, "ply")
 
     # backup
+    # 备份配置文件到输出目录
     os.system(f"cp {configs.file} {output_root}")
 
+    # 设置设备为GPU（如果可用）或CPU
     device = torch.device(configs["device"] if torch.cuda.is_available() else "cpu")
+
+    # 根据配置中的数据集名称导入相应的数据集类
     if dataset_cfg["dataset"] == "NuscDataset":
         from datasets.nusc import NuscDataset as Dataset
     elif dataset_cfg["dataset"] == "KittiDataset":
         from datasets.kitti import KittiDataset as Dataset
     else:
+        # 如果配置的数据库未实现，则抛出错误
         raise NotImplementedError("Dataset not implemented")
 
+    # 加载数据集：use_label 是否使用语义图像； use_depth 是否使用激光雷达
     dataset = Dataset(dataset_cfg, use_label=opt.seg_loss_weight > 0, use_depth=opt.depth_loss_weight > 0)
+    # 记录数据集相机范围和数据集大小到日志中
     logger.info(f"Dataset cameras_extent: {dataset.cameras_extent} - size: {len(dataset)}")
+    
+    # 创建 Road 对象，传递模型配置、数据集对象、设备信息以及可视化配置
     road = Road(model_cfg, dataset, device=device, vis=train_cfg.vis and GUI_FLAG)
+    
+    # 创建一个二维高斯模型实例，并传入模型配置
     gaussians = GaussianModel2D(model_cfg)
+
+    # 初始化二维高斯模型
+    # 传入参数包括：
+    # - road.vertices: 道路顶点信息
+    # - road.rotation: 道路的旋转信息
+    # - road.rgb: 道路的RGB颜色信息
+    # - road.label: 道路的标签信息
+    # - road.resolution: 道路的分辨率信息
+    # - road.ref_pose: 道路的参考姿态
+    # - dataset.cameras_extent: 数据集中相机的扩展信息
     gaussians.init_2d_gaussian(road.vertices, road.rotation, road.rgb, road.label, road.resolution, road.ref_pose, dataset.cameras_extent)
+    
+    # 设置训练参数
+    # - opt["position_lr_max_steps"]: 最大步数，等于数据集长度乘以训练的轮数
     opt["position_lr_max_steps"] = len(dataset) * opt.epochs
     gaussians.training_setup(opt)
 
     bev_cam = road.bev_camera
     bev_cam_height = bev_cam.cam2world[2, 3]
 
+    # 对真值进行渲染和可视化
     road_pointcloud = dataset.road_pointcloud
     if road_pointcloud is not None:
         road_point_root = os.path.join(output_root, "road_point")
@@ -396,6 +442,11 @@ def train(configs):
 
 
 if __name__ == "__main__":
+    # 调用 get_configs 函数以获取配置文件的内容
     configs = get_configs()
+
+    # 使用 addict.Dict 将配置字典转换为 addict 的 Dict 对象，以便更方便地访问嵌套的配置项
     configs = addict.Dict(configs)
+
+    # 将转换后的配置对象传递给 train 函数，开始训练过程
     train(configs)

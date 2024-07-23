@@ -12,27 +12,42 @@ from utils.general_utils import strip_symmetric, build_scaling_rotation, inverse
 
 class GaussianModel2D(object):
     def setup_functions(self):
+        # 定义一个函数用于从缩放和旋转矩阵构建协方差矩阵
         def build_covariance_from_scaling_rotation(scaling, scaling_modifier, rotation):
+            # 构建缩放和旋转矩阵的联合矩阵L
             L = build_scaling_rotation(scaling_modifier * scaling, rotation)
+            # 计算实际的协方差矩阵，L与其转置矩阵相乘
             actual_covariance = L @ L.transpose(1, 2)
+            # 去除协方差矩阵中的对称成分
             symm = strip_symmetric(actual_covariance)
             return symm
 
+        # 设置缩放激活函数为指数函数
         self.scaling_activation = torch.exp
+        # 设置缩放逆激活函数为对数函数
         self.scaling_inverse_activation = torch.log
 
+        # 设置协方差激活函数为从缩放和旋转矩阵构建协方差矩阵的函数
         self.covariance_activation = build_covariance_from_scaling_rotation
 
+        # 设置不透明度激活函数为Sigmoid函数
         self.opacity_activation = torch.sigmoid
+        # 设置不透明度逆激活函数为逆Sigmoid函数
         self.inverse_opacity_activation = inverse_sigmoid
 
+        # 设置标签激活函数为Softmax函数
         self.label_activation = torch.nn.functional.softmax
 
+        # 设置旋转激活函数为归一化函数
         self.rotation_activation = torch.nn.functional.normalize
 
+        # 注释掉的代码段定义了RGB颜色的激活和逆激活函数为tanh函数
         # self.rgb_activation = lambda x: (torch.tanh(x) + 1) / 2
         # self.inverse_rgb_activation = lambda x: torch.atanh(2 * x - 1)
+
+        # 设置RGB颜色的激活函数为Sigmoid函数
         self.rgb_activation = torch.sigmoid
+        # 设置RGB颜色的逆激活函数为逆Sigmoid函数
         self.inverse_rgb_activation = inverse_sigmoid
 
     def __init__(self, cfg):
@@ -170,33 +185,61 @@ class GaussianModel2D(object):
         :param ref_pose: (4,4)
         :param spatial_lr_scale: float
         :return:
+
+        初始化二维高斯模型的参数
+
+        :param xyz: (n, 3) - 道路顶点的坐标 (x, y, z)
+        :param rotation: (n, 4) - 道路的旋转信息 (四元数 w, x, y, z)
+        :param rgb: (n, 3) - 道路的RGB颜色信息
+        :param label: (n, 1) - 道路的标签信息
+        :param resolution: float - 分辨率
+        :param ref_pose: (4, 4) - 参考姿态矩阵
+        :param spatial_lr_scale: float - 空间学习率缩放比例
+        :return: None
         """
+
+        # 设置参考姿态和空间学习率缩放比例
         self.ref_pose = ref_pose
         self.spatial_lr_scale = spatial_lr_scale
+
+        # 获取点的数量
         num_points = xyz.shape[0]
         print("Number of points at initialisation : ", num_points)
 
+        # 设置缩放比例参数
         scale_s = 0.6
         rots = rotation
+
+        # 计算缩放xy的初始值，并进行逆激活
         scales_xy = torch.tensor([resolution * scale_s, resolution * scale_s], dtype=torch.float, device="cuda").repeat(num_points, 1)
         scales_xy = self.scaling_inverse_activation(scales_xy)
+        
+        # 初始化不透明度为1，并进行逆激活
         opacities = inverse_sigmoid(1 * torch.ones((num_points, 1), dtype=torch.float, device="cuda"))
 
+        # 设置模型参数，并使其可训练
         self._xy = nn.Parameter(xyz[:, :2].contiguous().requires_grad_(True))
         self._z = nn.Parameter(xyz[:, 2:3].contiguous().requires_grad_(True))
         self._scaling_xy = nn.Parameter(scales_xy.requires_grad_(True))
         self._rotation = nn.Parameter(rots.requires_grad_(True))
         self._opacity = nn.Parameter(opacities.requires_grad_(True))
         self._label = nn.Parameter(label.requires_grad_(True))
+
+        # 根据use_rgb标志，初始化RGB或其他颜色特征
         if self.use_rgb:
-            self._rgb = nn.Parameter(rgb.requires_grad_(True))
+            self._rgb = nn.Parameter(rgb.requires_grad_(True))  # RGB颜色信息
         else:
+            # 将RGB颜色转换为球谐系数
             fused_color = RGB2SH(rgb)
             features = torch.zeros((fused_color.shape[0], 3, (self.max_sh_degree + 1) ** 2)).float().cuda()
             features[:, :3, 0] = fused_color
             features[:, 3:, 1:] = 0.0
+            
+            # 初始化球谐系数的直流分量和剩余分量
             self._features_dc = nn.Parameter(features[:, :, 0:1].transpose(1, 2).contiguous().requires_grad_(True))
             self._features_rest = nn.Parameter(features[:, :, 1:].transpose(1, 2).contiguous().requires_grad_(True))
+        
+        # 初始化最大半径2D为零
         self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
 
     def training_setup(self, training_args):

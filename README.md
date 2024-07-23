@@ -51,15 +51,15 @@ git clone https://github.com/fzhiheng/RoGS.git
    In order to optimize the semantic and try not to lose performance (there is some performance loss in dynamically allocating memory when the channel does not need to be specified). We still use the library above. Only a few changes are needed.
 
    ```bash
-   git clone --recursive https://github.com/fzhiheng/diff-gs-depth-alpha.git diff-gs-label && cd diff-gs-label
-   mv diff_gaussian_rasterization diff-gs-label
+   git clone --recursive https://github.com/fzhiheng/diff-gs-depth-alpha.git diff_gs_label && cd diff_gs_label
+   mv diff_gaussian_rasterization diff_gs_label
    
    # follow the instructions below to modify the file
    
    python setup.py install
    ```
 
-   Set `NUM_CHANNELS` in file `cuda_rasterizer/config.h` to `num_class` ( 7 for nuScenes and 5 for KITTI) and change all `diff_gaussian_rasterization` in `setup.py`  to `diff-gs-label`.    On the dataset KITTI, we changed the name of the library to `diff-gs-label2` .  In practice,  you can set `NUM_CHANNELS` according to the category of your semantic segmentation and change the name of the library.
+   Set `NUM_CHANNELS` in file `cuda_rasterizer/config.h` to `num_class` ( 7 for nuScenes and 5 for KITTI) and change all `diff_gaussian_rasterization` in `setup.py`  to `diff_gs_label`.    On the dataset KITTI, we changed the name of the library to `diff_gs_label2` .  In practice,  you can set `NUM_CHANNELS` according to the category of your semantic segmentation and change the name of the library.
 
 
 
@@ -76,7 +76,7 @@ In `configs/local_nusc.yaml` and `configs/local_nusc_mini.yaml`
 - `road_gt_dir`：Put ground truth here. To produce ground truth:
 
   ```bash
-  python -m preprocess.process --nusc_root /dataset/nuScenes/v1.0-mini --seg_root /dataset/nuScenes/nuScenes_clip ---save_root /dataset/nuScenes/ -v mini --scene_names scene-0655
+  python -m preprocess.process_nusc --nusc_root /dataset/nuScenes/v1.0-mini --seg_root /dataset/nuScenes/nuScenes_clip --save_root /dataset/nuScenes/ -v mini --scene_names scene-0655
   ```
 
 ### KITTI
