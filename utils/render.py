@@ -29,18 +29,23 @@ def get_rect(cam2world, x_length=40, y_length=50):
     max_xy = torch.max(rect, dim=0).values
     return min_xy, max_xy
 
-
+# 用于渲染场景
+# 该函数接收一个相机视点、一个包含2D高斯模型的点云对象、一个管道配置、背景颜色张量和一个可选的位移姿态，并返回渲染结果、可见性滤波器、深度信息和有效掩码。
 def render(viewpoint_camera, pc: GaussianModel2D, pipe, bg_color: torch.Tensor, delta_pose=None):
     """
     Render the scene.
 
     Background tensor (bg_color) must be on GPU!
     """
-
+    
+    # 缩放修正因子，默认为1.0
     scaling_modifier = 1.0
     # Create zero tensor. We will use it to make pytorch return gradients of the 2D (screen-space) means
     
+    # 标记是否启用快速模式
     fast_flag = True
+
+    # 判断相机类型并设置相关参数（PerspectiveCamera）
     if isinstance(viewpoint_camera, PerspectiveCamera):
         camera_type = 0
         tanfovx = math.tan(viewpoint_camera.FoVx * 0.5)
@@ -51,7 +56,7 @@ def render(viewpoint_camera, pc: GaussianModel2D, pipe, bg_color: torch.Tensor, 
         tanfovy = 0
         fast_flag = False
 
-
+    # 设置光栅化配置
     raster_settings = GaussianRasterizationSettings(
         image_height=int(viewpoint_camera.image_height),
         image_width=int(viewpoint_camera.image_width),
@@ -68,13 +73,17 @@ def render(viewpoint_camera, pc: GaussianModel2D, pipe, bg_color: torch.Tensor, 
         debug=pipe.debug
     )
 
+    # 初始化光栅器
     rasterizer = GaussianRasterizer(raster_settings=raster_settings)
 
+    # 获取点云的3D位置和不透明度
     means3D = pc.get_xyz
     opacity = pc.get_opacity
 
-    x_length = 40
-    y_length = 50
+    x_length = 40   # x轴长度
+    y_length = 50   # y轴长度
+
+    # 如果启用了快速模式，计算激活掩码
     if fast_flag:
         min_xy, max_xy = get_rect(viewpoint_camera.cam2world, x_length, y_length)
         activate_mask1 = torch.bitwise_and(means3D[:, 0] > min_xy[0], means3D[:, 0] < max_xy[0])  
@@ -83,7 +92,7 @@ def render(viewpoint_camera, pc: GaussianModel2D, pipe, bg_color: torch.Tensor, 
     else:
         activate_mask = torch.ones(means3D.shape[0], dtype=torch.bool, device="cuda")
 
-
+    # 根据激活掩码过滤点云数据
     means3D = means3D[activate_mask]
     opacity = opacity[activate_mask]
     screenspace_points = torch.zeros_like(means3D, dtype=means3D.dtype, requires_grad=True, device="cuda") + 0
@@ -96,6 +105,7 @@ def render(viewpoint_camera, pc: GaussianModel2D, pipe, bg_color: torch.Tensor, 
 
     # If precomputed 3d covariance is provided, use it. If not, then it will be computed from
     # scaling / rotation by the rasterizer.
+    # 如果提供了预计算的3D协方差，则使用它，否则通过光栅器计算
     scales = None
     rotations = None
     cov3D_precomp = None
@@ -108,6 +118,7 @@ def render(viewpoint_camera, pc: GaussianModel2D, pipe, bg_color: torch.Tensor, 
         scales = scales[activate_mask]
         rotations = rotations[activate_mask]
 
+    # 如果提供了delta_pose，则应用其变换
     if delta_pose is not None:
         delta_quat, delta_t = delta_pose
         means3D = quaternion_apply(delta_quat, means3D) + delta_t
@@ -129,6 +140,7 @@ def render(viewpoint_camera, pc: GaussianModel2D, pipe, bg_color: torch.Tensor, 
         colors_precomp = colors_precomp[activate_mask]
 
     # Rasterize visible Gaussians to image, obtain their radii (on screen).
+    # 光栅化可见的高斯模型，获得图像、半径、深度和alpha通道
     rendered_image, radii, depth, alpha = rasterizer(
         means3D=means3D,
         means2D=means2D,
@@ -140,11 +152,13 @@ def render(viewpoint_camera, pc: GaussianModel2D, pipe, bg_color: torch.Tensor, 
         cov3D_precomp=cov3D_precomp
     )
 
+    # 生成可见性滤波器
     visibility_filter = torch.zeros(pc.get_xyz.shape[0], dtype=torch.bool, device="cuda")
     visibility_filter[activate_mask] = radii > 0
 
-    valid_mask = depth[0] > 0
+    valid_mask = depth[0] > 0   # 生成有效掩码
 
+    # 返回渲染结果、可见性滤波器、深度信息和有效掩码
     return {"render": rendered_image,
             "visibility_filter": visibility_filter,
             "depth": depth,

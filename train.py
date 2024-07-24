@@ -179,6 +179,7 @@ def train(configs):
         road_point_root = os.path.join(output_root, "road_point")
         gt_render(dataset, road.min_xy, road.max_xy, bev_cam_height, wh=(bev_cam.image_width, bev_cam.image_height), save_root=road_point_root, device=device)
 
+    # 曝光模型
     exposure_model = ExposureModel(num_camera=len(dataset.camera_names)).to(device)
     exposure_optimizer = torch.optim.Adam(exposure_model.parameters(), lr=opt.exposure_lr)
 
@@ -246,14 +247,31 @@ def train(configs):
 
             bg = torch.rand((3), device="cuda") if opt.random_background else background
 
+            # 使用定义的render函数渲染场景，并将渲染结果存储在render_pkg字典中
             render_pkg = render(viewpoint_cam, gaussians, pipe, bg)
+
+            # 从渲染结果字典中提取渲染图像、深度信息和掩码
             src_render_image, render_depth, render_mask = render_pkg["render"], render_pkg["depth"][0], render_pkg["mask"]
+            
+            # 提取可见性滤波器，用于标记渲染过程中可见的点
             visibility_filter = render_pkg["visibility_filter"]
+
+            # 计算可见的点的数量
             hit_num = torch.sum(visibility_filter)
+
+            # 使用曝光模型调整渲染图像的曝光，cam_idx表示相机的索引
             render_image = exposure_model(cam_idx, src_render_image)
+
+            # 变换渲染图像的维度，从(C, H, W)变为(H, W, C)
             render_image = render_image.permute(1, 2, 0)
+
+            # 对原始渲染图像进行同样的维度变换，从(C, H, W)变为(H, W, C)
             src_render_image = src_render_image.permute(1, 2, 0)  # (H, W, 3)
+
+            # 分离计算图，使src_render_image不再参与梯度计算，并将其转移到CPU上
             src_render_image = src_render_image.detach().cpu().numpy() * 255
+
+            # 将src_render_image从RGB格式转换为BGR格式，以便在OpenCV中使用
             src_render_image = cv2.cvtColor(src_render_image.astype(np.uint8), cv2.COLOR_RGB2BGR)
 
             valid_mask = torch.bitwise_and(render_depth.detach() > viewpoint_cam.znear, render_depth.detach() < viewpoint_cam.zfar)
