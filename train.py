@@ -215,27 +215,52 @@ def train(configs):
     logger.info(f"z loss: {'ON' if opt.z_weight > 0 and road_pointcloud is not None else 'OFF'}")
     logger.info(f"depth loss: {'ON' if opt.depth_loss_weight > 0 else 'OFF'}")
 
+    # 计算CUDA上事件耗时
     cost_time = 0
-    iter_start = torch.cuda.Event(enable_timing=True)
-    iter_end = torch.cuda.Event(enable_timing=True)
+    iter_start = torch.cuda.Event(enable_timing=True)   # 创建开始事件
+    iter_end = torch.cuda.Event(enable_timing=True)     # 创建结束时间
+
     ema_loss_for_log = 0.0
     progress_bar = tqdm(range(first_iter, opt.epochs * len(dataset)), desc="Training progress")
     first_iter += 1
-    iteration = first_iter
+    iteration = first_iter # iteration = 1
     max_iter = opt.epochs * len(dataset)
+
+    # 加载数据集。
+    # 参数说明
+    #   - dataset：数据集，必须是一个继承自torch.utils.data.Dataset的对象。
+    #   - batch_size：每个batch的数据量。
+    #   - shuffle：是否在每个epoch开始时打乱数据顺序。
+    #   - sampler：定义从数据集中提取样本的策略，如果设置了sampler，shuffle必须为False。
+    #   - batch_sampler：与sampler类似，但一次返回一个batch的索引。
+    #   - num_workers：加载数据时使用的子进程数量。0表示数据将在主进程中加载。
+    #   - collate_fn：如何将一个列表的样本组合成一个batch的数据。
+    #   - pin_memory：如果True，DataLoader将会在返回之前将tensors拷贝到CUDA的固定内存。
+    #   - drop_last：如果True，则丢弃不能完整形成一个batch的数据。
+    #   - timeout：如果大于0，则表示从worker中获取一个batch的最大时间（秒）。
+    #   - worker_init_fn：每个worker初始化时调用的函数。
     dataloader = DataLoader(dataset, batch_size=1, num_workers=4, shuffle=True, drop_last=True)
     for epoch in range(opt.epochs):
-        for sample in dataloader:
+        for sample in dataloader:   # 对于dataloader中的每一个样本
+
+            # 在 CUDA 操作之前记录开始事件
             iter_start.record()
+
+            # 遍历sample中所有的键值对
             for key, value in sample.items():
+                # 将对应的值（通常是一个张量）移动到指定的设备（除了sample["image_name"]以外）
                 if key != "image_name":
                     sample[key] = value[0].to(device)
                 else:
                     sample[key] = value[0]
-            gaussians.update_learning_rate(iteration)
+            
+            # 更新二维高斯模型的学习率
+            gaussians.update_learning_rate(iteration)   # iteration = 1
+
             if not gaussians.use_rgb and iteration % 1000 == 0:
                 gaussians.oneupSHdegree()
 
+            
             image_name = sample["image_name"]
             gt_image = sample["image"]
             image_idx = sample["idx"].item()
@@ -333,9 +358,15 @@ def train(configs):
             exposure_optimizer.step()
             exposure_optimizer.zero_grad(set_to_none=True)
 
+            # 在 CUDA 操作之后记录结束事件
             iter_end.record()
+
+            # 同步事件
             torch.cuda.synchronize()
+
+            # 计算开始事件和结束事件间的时间，并累加到GPU总耗时中
             cost_time += iter_start.elapsed_time(iter_end)
+
 
             with torch.no_grad():
                 ema_loss_for_log = 0.4 * total_loss.item() + 0.6 * ema_loss_for_log
@@ -444,7 +475,10 @@ def train(configs):
             os.makedirs(ply_root, exist_ok=True)
             gaussians.save_ply(os.path.join(ply_root, f"EPOCH-{epoch}-final.ply"))
 
+    # 将GPU总耗时保存在log中
     logger.info(f"Opt has end! It cost time: {cost_time / 1000} s")
+
+    # 保存checkpoint
     ckpt_path = os.path.join(output_root, "final.pth")
     torch.save(gaussians.capture(), ckpt_path)
 
