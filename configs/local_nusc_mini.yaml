@@ -5,9 +5,9 @@ output: "./output"
 dataset:
   dataset: "NuscDataset"
   version: "mini"
-  base_dir: /home/wade/wade/Data/RoGS/v1.0-mini
-  image_dir: /home/wade/wade/Data/RoGS/nuScenes_clip
-  road_gt_dir: /home/wade/wade/Data/RoGS/nuScenes_road_gt
+  base_dir: /home/wade/wade/Data/RoGS/nuScenes/v1.0-mini
+  image_dir: /home/wade/wade/Data/RoGS/nuScenes/nuScenes_clip
+  road_gt_dir: /home/wade/wade/Data/RoGS/nuScenes/nuScenes_road_gt
   replace_name: False
   max_x_length: -1
   max_y_length: -1

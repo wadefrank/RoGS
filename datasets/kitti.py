@@ -105,7 +105,7 @@ class KittiDataset(BaseDataset):
             file_names.sort(key=lambda x: int(x[:-4]))
 
             image_paths = [os.path.join("sequences", self.sequence, camera_name, file_name) for file_name in file_names]
-            label_paths = [os.path.join("seg_sequences", self.sequence, camera_name, file_name.replace(".jpg", ".png")) for file_name in file_names]
+            label_paths = [os.path.join("seg_sequences", self.sequence, camera_name, file_name[4:].replace(".jpg", ".png")) for file_name in file_names]
             camera2world = cam0_poses @ self.camxx2cam0[camera_name][None]  # (N, 4, 4)
 
             image_paths = image_paths[:index]
@@ -200,13 +200,13 @@ class KittiDataset(BaseDataset):
         return mask, label
 
     def __getitem__(self, idx):
-        cam_idx = self.cameras_idx_all[idx]
-        cam2world = self.camera2world_all[idx]
-        K = self.cameras_K_all[idx]
+        cam_idx = self.cameras_idx_all[idx]                                         # 相机idx（因为只用到了一个相机，都为0）
+        cam2world = self.camera2world_all[idx]                                      # 相机在世界坐标系下的位姿
+        K = self.cameras_K_all[idx]                                                 # 相机内参
 
-        image_path = os.path.join(self.base_dir, self.image_filenames_all[idx])
-        image_name = os.path.basename(image_path).split(".")[0]
-        input_image = cv2.imread(image_path)
+        image_path = os.path.join(self.base_dir, self.image_filenames_all[idx])     # 相机绝对路径
+        image_name = os.path.basename(image_path).split(".")[0]                     # 相机名称（去除掉后缀名）
+        input_image = cv2.imread(image_path)                                        # cv::Mat（从路径中读取相机）
 
         crop_cy = int(self.resized_image_size[1] * 0.4)
         origin_image_size = input_image.shape

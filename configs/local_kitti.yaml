@@ -5,10 +5,10 @@ output: "./output"
 
 dataset:
   dataset: "KittiDataset"
-  base_dir: /dataset/data_odometry_color
-  image_dir: /dataset/data_odometry_color_mask2former
-  pose_dir: /dataset/data_odometry_poses
-  sequence: "01"
+  base_dir: /home/wade/wade/Data/RoGS/kitti/Kitti
+  image_dir: /home/wade/wade/Data/RoGS/kitti/Kitti
+  pose_dir: /home/wade/wade/Data/RoGS/kitti/Kitti
+  sequence: "00"
   max_x_length: -1
   max_y_length: -1
 
